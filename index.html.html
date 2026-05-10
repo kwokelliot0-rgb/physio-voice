@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Physio Voice Notes</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0f1219; --surface: #161b26; --surface2: #1e293b;
+    --border: #232b3b; --text: #e2e8f0; --muted: #64748b;
+    --purple: #7c3aed; --purple-light: #ede9fe; --purple-dark: #4c1d95;
+    --green: #16a34a; --red: #dc2626; --amber: #d97706;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    display: flex; flex-direction: column; }
+
+  /* ── Top bar ── */
+  #topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 16px 10px; display: flex; align-items: center; justify-content: space-between;
+    padding-top: max(12px, env(safe-area-inset-top)); }
+  #topbar h1 { font-size: 16px; font-weight: 600; color: var(--text); }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
+  #status-dot.ready { background: var(--green); }
+  #status-dot.sending { background: var(--amber); }
+
+  /* ── Settings panel ── */
+  #settings-btn { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; }
+  #settings-panel { display: none; background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+  #settings-panel.open { display: block; }
+  #settings-panel label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  #settings-panel input { width: 100%; padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 14px; outline: none; }
+  #settings-panel input:focus { border-color: var(--purple); }
+  .settings-row { margin-bottom: 10px; }
+  #save-settings { width: 100%; margin-top: 4px; padding: 10px; background: var(--purple);
+    border: none; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+
+  /* ── Bed grid ── */
+  #bed-section { padding: 14px 16px 8px; flex-shrink: 0; }
+  #bed-section h2 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 10px; }
+  #bed-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .bed-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 4px; text-align: center; font-size: 13px; font-weight: 600; color: var(--muted);
+    cursor: pointer; transition: all 0.15s; user-select: none; }
+  .bed-btn:active { transform: scale(0.95); }
+  .bed-btn.selected { background: #2e1065; border-color: var(--purple); color: #c4b5fd; }
+  .bed-btn.sent { background: #14532d; border-color: #16a34a; color: #86efac; }
+  .room-label { font-size: 10px; color: var(--muted); margin: 8px 0 4px; grid-column: 1/-1;
+    text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ── Record section ── */
+  #record-section { flex: 1; display: flex; flex-direction: column; padding: 12px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  #selected-bed-label { font-size: 13px; color: var(--muted); margin-bottom: 10px; min-height: 18px; }
+  #selected-bed-label span { color: #c4b5fd; font-weight: 600; }
+
+  /* Transcript box */
+  #transcript { flex: 1; min-height: 100px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.65; color: var(--muted);
+    margin-bottom: 12px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+  #transcript.has-text { color: var(--text); }
+  #transcript.processing { border-color: var(--purple); color: #a78bfa; }
+
+  /* Status message */
+  #status-msg { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 10px;
+    min-height: 16px; transition: color 0.2s; }
+  #status-msg.error { color: #f87171; }
+  #status-msg.success { color: #4ade80; }
+  #status-msg.processing { color: #a78bfa; }
+
+  /* Record button */
+  #rec-btn { width: 100%; height: 64px; border-radius: 16px; border: none; font-size: 16px;
+    font-weight: 600; cursor: pointer; transition: all 0.15s; display: flex;
+    align-items: center; justify-content: center; gap: 10px; }
+  #rec-btn.idle { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  #rec-btn.idle.ready { background: var(--purple); color: #fff; border-color: var(--purple); }
+  #rec-btn.recording { background: var(--red); color: #fff; }
+  #rec-btn.processing { background: #0f6e56; color: #fff; }
+  #rec-btn:active { transform: scale(0.98); }
+  .rec-pulse { width: 10px; height: 10px; border-radius: 50%; background: currentColor;
+    animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(0.85)} }
+
+  /* Action buttons */
+  #action-row { display: flex; gap: 8px; margin-top: 10px; }
+  #send-btn { flex: 1; height: 48px; border-radius: 12px; border: none; background: var(--green);
+    color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  #send-btn:disabled { background: var(--surface2); color: var(--muted); cursor: default; }
+  #send-btn:not(:disabled):active { transform: scale(0.98); }
+  #discard-btn { width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; }
+  #discard-btn:active { background: var(--surface2); }
+  #edit-btn { width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; }
+
+  /* Edit textarea */
+  #edit-area { display: none; width: 100%; min-height: 120px; background: var(--surface);
+    border: 1px solid var(--purple); border-radius: 12px; padding: 12px; font-size: 13px;
+    line-height: 1.65; color: var(--text); outline: none; resize: vertical;
+    font-family: inherit; margin-bottom: 8px; }
+  #edit-area.visible { display: block; }
+
+  /* Sent history */
+  #history { padding: 0 16px 16px; }
+  #history h2 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 8px; }
+  .history-item { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  .history-bed { font-size: 12px; font-weight: 700; color: #86efac; background: #14532d;
+    padding: 2px 8px; border-radius: 6px; flex-shrink: 0; }
+  .history-preview { font-size: 12px; color: var(--muted); flex: 1; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .history-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>Physio Voice Notes</h1>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div id="status-dot"></div>
+    <button id="settings-btn" onclick="toggleSettings()" aria-label="Settings">⚙</button>
+  </div>
+</div>
+
+<div id="settings-panel">
+  <div class="settings-row">
+    <label>Relay URL (from Cloudflare Worker)</label>
+    <input type="url" id="relay-url" placeholder="https://your-worker.workers.dev" autocomplete="off" autocapitalize="off">
+  </div>
+  <div class="settings-row">
+    <label>Gemini API Key</label>
+    <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off">
+  </div>
+  <button id="save-settings" onclick="saveSettings()">Save</button>
+</div>
+
+<div id="bed-section">
+  <h2>Select bed</h2>
+  <div id="bed-grid">
+    <span class="room-label">Room 10</span>
+    <div class="bed-btn" onclick="selectBed(this,'10A')">10A</div>
+    <div class="bed-btn" onclick="selectBed(this,'10B')">10B</div>
+    <div class="bed-btn" onclick="selectBed(this,'10C')">10C</div>
+    <div class="bed-btn" onclick="selectBed(this,'10D')">10D</div>
+    <span class="room-label">Room 11</span>
+    <div class="bed-btn" onclick="selectBed(this,'11A')">11A</div>
+    <div class="bed-btn" onclick="selectBed(this,'11B')">11B</div>
+    <div class="bed-btn" onclick="selectBed(this,'11C')">11C</div>
+    <div class="bed-btn" onclick="selectBed(this,'11D')">11D</div>
+    <span class="room-label">Room 12</span>
+    <div class="bed-btn" onclick="selectBed(this,'12A')">12A</div>
+    <div class="bed-btn" onclick="selectBed(this,'12B')">12B</div>
+    <div class="bed-btn" onclick="selectBed(this,'12C')">12C</div>
+    <div class="bed-btn" onclick="selectBed(this,'12D')">12D</div>
+    <span class="room-label">Room 14</span>
+    <div class="bed-btn" onclick="selectBed(this,'14A')">14A</div>
+    <div class="bed-btn" onclick="selectBed(this,'14B')">14B</div>
+    <div class="bed-btn" onclick="selectBed(this,'14C')">14C</div>
+    <div class="bed-btn" onclick="selectBed(this,'14D')">14D</div>
+    <span class="room-label">Room 15</span>
+    <div class="bed-btn" onclick="selectBed(this,'15A')">15A</div>
+    <div class="bed-btn" onclick="selectBed(this,'15B')">15B</div>
+    <span class="room-label">Room 16</span>
+    <div class="bed-btn" onclick="selectBed(this,'16A')">16A</div>
+    <div class="bed-btn" onclick="selectBed(this,'16B')">16B</div>
+    <span class="room-label">Single rooms</span>
+    <div class="bed-btn" onclick="selectBed(this,'17')">17</div>
+    <div class="bed-btn" onclick="selectBed(this,'18')">18</div>
+    <div class="bed-btn" onclick="selectBed(this,'19')">19</div>
+    <div class="bed-btn" onclick="selectBed(this,'20')">20</div>
+  </div>
+</div>
+
+<div id="record-section">
+  <div id="selected-bed-label">Tap a bed to begin</div>
+  <div id="transcript">Transcript will appear here as you speak...</div>
+  <textarea id="edit-area" placeholder="Edit note before sending..."></textarea>
+  <div id="status-msg"></div>
+  <button id="rec-btn" class="idle" onclick="toggleRecord()" disabled>
+    <span id="rec-icon">🎙</span>
+    <span id="rec-label">Select a bed first</span>
+  </button>
+  <div id="action-row" style="display:none;">
+    <button id="send-btn" onclick="sendNote()">Send to ward app</button>
+    <button id="edit-btn" onclick="toggleEdit()" title="Edit note">✏️</button>
+    <button id="discard-btn" onclick="discardNote()" title="Discard">✕</button>
+  </div>
+</div>
+
+<div id="history" style="display:none;">
+  <h2>Sent this session</h2>
+  <div id="history-list"></div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+var selectedBed = null;
+var selectedBedEl = null;
+var recognition = null;
+var isRecording = false;
+var rawTranscript = '';
+var polishedNote = '';
+var editMode = false;
+var sentNotes = [];
+
+// ── Settings ───────────────────────────────────────────────────────────────
+function loadSettings() {
+  document.getElementById('relay-url').value = localStorage.getItem('relayUrl') || '';
+  document.getElementById('gemini-key').value = localStorage.getItem('geminiKey') || '';
+  checkReady();
+}
+function saveSettings() {
+  localStorage.setItem('relayUrl', document.getElementById('relay-url').value.trim());
+  localStorage.setItem('geminiKey', document.getElementById('gemini-key').value.trim());
+  toggleSettings();
+  checkReady();
+  setStatus('Settings saved', 'success');
+}
+function toggleSettings() {
+  document.getElementById('settings-panel').classList.toggle('open');
+}
+function checkReady() {
+  var hasRelay = !!localStorage.getItem('relayUrl');
+  var hasKey = !!localStorage.getItem('geminiKey');
+  var dot = document.getElementById('status-dot');
+  dot.className = (hasRelay && hasKey) ? 'ready' : '';
+}
+
+// ── Bed selection ──────────────────────────────────────────────────────────
+function selectBed(el, bed) {
+  if (selectedBedEl) selectedBedEl.classList.remove('selected');
+  selectedBed = bed;
+  selectedBedEl = el;
+  el.classList.add('selected');
+  document.getElementById('selected-bed-label').innerHTML = 'Recording for bed <span>' + bed + '</span>';
+  var btn = document.getElementById('rec-btn');
+  btn.disabled = false;
+  btn.className = 'idle ready';
+  document.getElementById('rec-label').textContent = 'Tap to record';
+  document.getElementById('rec-icon').textContent = '🎙';
+  discardNote();
+}
+
+// ── Speech recognition ─────────────────────────────────────────────────────
+function toggleRecord() {
+  if (!selectedBed) return;
+  if (isRecording) stopRecording();
+  else startRecording();
+}
+
+function startRecording() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setStatus('Speech recognition not supported on this browser', 'error');
+    return;
+  }
+  rawTranscript = '';
+  recognition = new SpeechRecognition();
+  recognition.lang = 'en-NZ';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = function() {
+    isRecording = true;
+    document.getElementById('rec-btn').className = 'recording';
+    document.getElementById('rec-label').textContent = 'Tap to stop';
+    document.getElementById('rec-icon').innerHTML = '<div class="rec-pulse"></div>';
+    document.getElementById('transcript').textContent = '';
+    document.getElementById('transcript').className = '';
+    document.getElementById('action-row').style.display = 'none';
+    setStatus('Listening...', '');
+  };
+
+  recognition.onresult = function(e) {
+    var interim = '';
+    var final = '';
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    rawTranscript += final;
+    var tx = document.getElementById('transcript');
+    tx.textContent = rawTranscript + (interim ? ' ' + interim : '');
+    tx.className = 'has-text';
+    tx.scrollTop = tx.scrollHeight;
+  };
+
+  recognition.onerror = function(e) {
+    if (e.error === 'no-speech') return;
+    setStatus('Mic error: ' + e.error, 'error');
+    stopRecording();
+  };
+
+  recognition.onend = function() {
+    if (isRecording) {
+      // Auto-restart if still in recording mode (iOS kills after ~60s)
+      try { recognition.start(); } catch(e) { isRecording = false; onRecordingDone(); }
+    } else {
+      onRecordingDone();
+    }
+  };
+
+  try { recognition.start(); }
+  catch(e) { setStatus('Could not start microphone: ' + e.message, 'error'); }
+}
+
+function stopRecording() {
+  isRecording = false;
+  if (recognition) { try { recognition.stop(); } catch(e) {} }
+}
+
+function onRecordingDone() {
+  document.getElementById('rec-btn').className = 'processing';
+  document.getElementById('rec-label').textContent = 'Processing...';
+  document.getElementById('rec-icon').textContent = '⏳';
+  setStatus('Formatting note with AI...', 'processing');
+  if (rawTranscript.trim()) {
+    polishWithAI(rawTranscript.trim());
+  } else {
+    setStatus('No speech detected — try again', 'error');
+    resetRecBtn();
+  }
+}
+
+// ── AI polishing ───────────────────────────────────────────────────────────
+var SYSTEM_PROMPT = `You are a physiotherapy note formatter for an inpatient physio at a Wellington hospital NZ.
+
+Convert the dictated text into a SOTAP clinical note. The physio speaks naturally — do not require section labels.
+
+Infer sections from context:
+- What the patient reports (pain, sleep, feelings, anxieties) → S
+- What the physio observed and did (positions, transfers, mobility, stairs, measurements) → O  
+- Treatments provided (exercises, education, equipment issued) → T
+- Clinical reasoning or progress → A
+- Plan (review timing, nursing instructions, referrals) → P
+
+OUTPUT FORMAT — use exactly these headers and spacing:
+PT follow-up note
+
+S: VCG. [pain score X/10 if mentioned]. Reports [subjective phrases].
+
+O: Patient [position] alert and oriented
+[each task on its own line]
+
+T: [each treatment on its own line]
+
+A: [if mentioned]
+
+P: [plan lines]
+
+ABBREVIATION RULES:
+- Walking aids: WF (walking frame), GF (gutter frame), 4 wheel walker, 2x e/c, 1x e/c, quad stick, walking stick, unaided
+- Assistance: indep, Ax1, Ax2, HHAx1, SV
+- Weight bearing: WBAT, TWB, NWB, PWB — add "maintained" or "did not maintain" after
+- Mobility line: Mobility Xm [aid] [assistance] // [qualifiers]
+- Stairs line: Stairs XxX via [method] [assistance] // [qualifiers]
+- Standard qualifiers after //: Good balance, Wobbly, Step to gait, Step through gait, Good foot clearance, Dragging L leg / Dragging R leg, Increase in pain, No change to pain, GAS SAG, prompting needed for GAS SAG, needing Xx [standing/sitting] break for Xs
+- If the observation does not match a standard qualifier, write it as free clinical text after // — do not force a standard term
+- STS (sit to stand), SLR, MMT, VCG, r/v (review), PT DC
+
+O SECTION RULES — this is the most important section:
+- Be free and descriptive — if something unusual happened, describe it clearly on the relevant task line after //
+- If the patient had difficulty with a specific part of a task (e.g. lifting leg for bed transfer, negotiating a step, turning), include that detail on that task's line
+- Preserve the chronological order of what happened
+- If the patient was found sitting or standing, start with "Patient sitting OOB alert and oriented" or similar
+- Multiple mobility trips each get their own Mobility line
+- Any equipment adaptations or unusual techniques go on the task line they relate to
+
+RULES:
+- VCG always starts the S line
+- Omit any section not mentioned — do not write empty headers
+- Output only the formatted note, nothing else, no explanation`;
+
+async function polishWithAI(transcript) {
+  var key = localStorage.getItem('geminiKey');
+  if (!key) {
+    setStatus('No Gemini API key — add in settings', 'error');
+    resetRecBtn();
+    return;
+  }
+
+  try {
+    var res = await fetch(
+      'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=' + key,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [{ parts: [{ text: transcript }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
+        })
+      }
+    );
+
+    if (!res.ok) {
+      var err = await res.json().catch(function(){ return {}; });
+      throw new Error((err.error && err.error.message) ? err.error.message : 'API error ' + res.status);
+    }
+
+    var data = await res.json();
+    var text = data.candidates && data.candidates[0] && data.candidates[0].content &&
+               data.candidates[0].content.parts && data.candidates[0].content.parts[0]
+               ? data.candidates[0].content.parts[0].text : '';
+    text = text.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+
+    polishedNote = text;
+    document.getElementById('transcript').textContent = text;
+    document.getElementById('transcript').className = 'has-text';
+    document.getElementById('edit-area').value = text;
+    document.getElementById('action-row').style.display = 'flex';
+    setStatus('Note ready — review and send', 'success');
+    document.getElementById('rec-btn').className = 'idle ready';
+    document.getElementById('rec-label').textContent = 'Record again';
+    document.getElementById('rec-icon').textContent = '🎙';
+
+  } catch(e) {
+    setStatus('AI error: ' + e.message, 'error');
+    // Show raw transcript so it isn't lost
+    polishedNote = rawTranscript;
+    document.getElementById('transcript').textContent = rawTranscript;
+    document.getElementById('transcript').className = 'has-text';
+    document.getElementById('edit-area').value = rawTranscript;
+    document.getElementById('action-row').style.display = 'flex';
+    resetRecBtn();
+  }
+}
+
+// ── Edit mode ──────────────────────────────────────────────────────────────
+function toggleEdit() {
+  editMode = !editMode;
+  var ea = document.getElementById('edit-area');
+  var tx = document.getElementById('transcript');
+  if (editMode) {
+    ea.classList.add('visible');
+    tx.style.display = 'none';
+    document.getElementById('edit-btn').textContent = '👁';
+    ea.focus();
+  } else {
+    var edited = ea.value.trim();
+    if (edited) { polishedNote = edited; document.getElementById('transcript').textContent = edited; }
+    ea.classList.remove('visible');
+    tx.style.display = '';
+    document.getElementById('edit-btn').textContent = '✏️';
+  }
+}
+
+// ── Send ───────────────────────────────────────────────────────────────────
+async function sendNote() {
+  var relay = localStorage.getItem('relayUrl');
+  if (!relay) { setStatus('No relay URL — add in settings', 'error'); return; }
+  if (!selectedBed) { setStatus('No bed selected', 'error'); return; }
+
+  // Use edited version if in edit mode
+  var noteToSend = editMode
+    ? document.getElementById('edit-area').value.trim()
+    : polishedNote;
+
+  if (!noteToSend) { setStatus('No note to send', 'error'); return; }
+
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('send-btn').textContent = 'Sending...';
+  document.getElementById('status-dot').className = 'sending';
+  setStatus('Sending to ward app...', 'processing');
+
+  try {
+    var res = await fetch(relay.replace(/\/$/, '') + '/note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bed: selectedBed, note: noteToSend, type: 'voice' })
+    });
+
+    if (!res.ok) throw new Error('Relay error ' + res.status);
+    var data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Unknown error');
+
+    // Mark bed as sent
+    if (selectedBedEl) { selectedBedEl.classList.remove('selected'); selectedBedEl.classList.add('sent'); }
+
+    // Add to history
+    sentNotes.push({ bed: selectedBed, note: noteToSend, time: new Date().toLocaleTimeString('en-NZ', {hour:'2-digit',minute:'2-digit'}) });
+    renderHistory();
+
+    setStatus('Sent — note will appear in ward app', 'success');
+    document.getElementById('status-dot').className = 'ready';
+
+    // Reset for next patient
+    setTimeout(function() {
+      selectedBed = null;
+      selectedBedEl = null;
+      discardNote();
+      document.getElementById('selected-bed-label').innerHTML = 'Tap a bed to begin';
+      document.getElementById('rec-btn').className = 'idle';
+      document.getElementById('rec-btn').disabled = true;
+      document.getElementById('rec-label').textContent = 'Select a bed first';
+    }, 1500);
+
+  } catch(e) {
+    setStatus('Send failed: ' + e.message, 'error');
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('send-btn').textContent = 'Send to ward app';
+    document.getElementById('status-dot').className = 'ready';
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function discardNote() {
+  polishedNote = '';
+  rawTranscript = '';
+  editMode = false;
+  document.getElementById('transcript').textContent = 'Transcript will appear here as you speak...';
+  document.getElementById('transcript').className = '';
+  document.getElementById('edit-area').value = '';
+  document.getElementById('edit-area').classList.remove('visible');
+  document.getElementById('action-row').style.display = 'none';
+  document.getElementById('edit-btn').textContent = '✏️';
+  if (!selectedBed) return;
+  document.getElementById('rec-btn').className = 'idle ready';
+  document.getElementById('rec-label').textContent = 'Tap to record';
+  document.getElementById('rec-icon').textContent = '🎙';
+  setStatus('', '');
+}
+
+function resetRecBtn() {
+  document.getElementById('rec-btn').className = selectedBed ? 'idle ready' : 'idle';
+  document.getElementById('rec-label').textContent = selectedBed ? 'Tap to record' : 'Select a bed first';
+  document.getElementById('rec-icon').textContent = '🎙';
+}
+
+function setStatus(msg, type) {
+  var el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = type || '';
+}
+
+function renderHistory() {
+  if (!sentNotes.length) return;
+  var hist = document.getElementById('history');
+  hist.style.display = 'block';
+  var list = document.getElementById('history-list');
+  list.innerHTML = sentNotes.slice().reverse().map(function(n) {
+    var preview = n.note.replace(/\n/g,' ').substring(0, 60) + '...';
+    return '<div class="history-item"><span class="history-bed">' + n.bed + '</span>'
+      + '<span class="history-preview">' + preview + '</span>'
+      + '<span class="history-time">' + n.time + '</span></div>';
+  }).join('');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadSettings();
+</script>
+</body>
+</html>
